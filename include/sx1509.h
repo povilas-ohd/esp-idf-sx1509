@@ -1,138 +1,102 @@
-#ifndef SX1509_H
-#define SX1509_H
+#pragma once
 
-#include <stdint.h>
-#include "esp_err.h"
-#include "driver/i2c.h"
+#include <esp_err.h>
+#include <driver/i2c.h>
+#include <driver/gpio.h>
 
-/**
- * @brief Default I2C address for SX1509 (ADDR0/ADDR1 tied low).
- */
-#define SX1509_DEFAULT_ADDRESS 0x3E
+// Register definitions
+#define REG_INPUT_DISABLE_B    0x00
+#define REG_INPUT_DISABLE_A    0x01
+#define REG_LONG_SLEW_B       0x02
+#define REG_LONG_SLEW_A       0x03
+#define REG_LOW_DRIVE_B       0x04
+#define REG_LOW_DRIVE_A       0x05
+#define REG_PULLUP_B          0x06
+#define REG_PULLUP_A          0x07
+#define REG_PULLDOWN_B        0x08
+#define REG_PULLDOWN_A        0x09
+#define REG_OPEN_DRAIN_B      0x0A
+#define REG_OPEN_DRAIN_A      0x0B
+#define REG_POLARITY_B        0x0C
+#define REG_POLARITY_A        0x0D
+#define REG_DIR_B             0x0E
+#define REG_DIR_A             0x0F
+#define REG_DATA_B            0x10
+#define REG_DATA_A            0x11
+#define REG_INTERRUPT_MASK_B  0x12
+#define REG_INTERRUPT_MASK_A  0x13
+#define REG_SENSE_HIGH_B      0x14
+#define REG_SENSE_LOW_B       0x15
+#define REG_SENSE_HIGH_A      0x16
+#define REG_SENSE_LOW_A       0x17
+#define REG_INTERRUPT_SOURCE_B 0x18
+#define REG_INTERRUPT_SOURCE_A 0x19
+#define REG_EVENT_STATUS_B    0x1A
+#define REG_EVENT_STATUS_A    0x1B
+#define REG_LEVEL_SHIFTER_1   0x1C
+#define REG_LEVEL_SHIFTER_2   0x1D
+#define REG_CLOCK             0x1E
+#define REG_MISC              0x1F
+#define REG_LED_DRIVER_ENABLE_B 0x20
+#define REG_LED_DRIVER_ENABLE_A 0x21
+#define REG_RESET             0x7D
+#define REG_TEST_1            0x7E
+#define REG_TEST_2            0x7F
 
-/**
- * @brief Enumeration of SX1509 I/O pins.
- *
- * Defines the 16 available I/O pins on the SX1509, numbered from 0 to 15.
- */
+// Pin definitions
+#define SX1509_PIN_0  0
+#define SX1509_PIN_1  1
+#define SX1509_PIN_2  2
+#define SX1509_PIN_3  3
+#define SX1509_PIN_4  4
+#define SX1509_PIN_5  5
+#define SX1509_PIN_6  6
+#define SX1509_PIN_7  7
+#define SX1509_PIN_8  8
+#define SX1509_PIN_9  9
+#define SX1509_PIN_10 10
+#define SX1509_PIN_11 11
+#define SX1509_PIN_12 12
+#define SX1509_PIN_13 13
+#define SX1509_PIN_14 14
+#define SX1509_PIN_15 15
+
 typedef enum {
-    SX1509_IO_0 = 0,   /**< I/O Pin 0 */
-    SX1509_IO_1,       /**< I/O Pin 1 */
-    SX1509_IO_2,       /**< I/O Pin 2 */
-    SX1509_IO_3,       /**< I/O Pin 3 */
-    SX1509_IO_4,       /**< I/O Pin 4 */
-    SX1509_IO_5,       /**< I/O Pin 5 */
-    SX1509_IO_6,       /**< I/O Pin 6 */
-    SX1509_IO_7,       /**< I/O Pin 7 */
-    SX1509_IO_8,       /**< I/O Pin 8 */
-    SX1509_IO_9,       /**< I/O Pin 9 */
-    SX1509_IO_10,      /**< I/O Pin 10 */
-    SX1509_IO_11,      /**< I/O Pin 11 */
-    SX1509_IO_12,      /**< I/O Pin 12 */
-    SX1509_IO_13,      /**< I/O Pin 13 */
-    SX1509_IO_14,      /**< I/O Pin 14 */
-    SX1509_IO_15,      /**< I/O Pin 15 */
-    SX1509_IO_COUNT    /**< Total number of pins (16) */
-} sx1509_io_t;
+    SX1509_INPUT = 0,
+    SX1509_OUTPUT,
+    SX1509_INPUT_PULLUP,
+    SX1509_ANALOG_OUTPUT
+} sx1509_pin_mode_t;
 
-/**
- * @brief SX1509 I/O mode configuration.
- */
+// Additional register definitions
+#define REG_DEBOUNCE_CONFIG_A  0x22
+#define REG_DEBOUNCE_CONFIG_B  0x23
+
 typedef enum {
-    SX1509_INPUT = 0,           /**< Input mode */
-    SX1509_INPUT_PULLUP,        /**< Input with internal pull-up resistor */
-    SX1509_OUTPUT,              /**< Output mode (push-pull) */
-    SX1509_ANALOG_OUTPUT        /**< PWM output mode */
-} sx1509_io_mode_t;
+    SX1509_RISING = 0,
+    SX1509_FALLING = 1,
+    SX1509_CHANGE = 2
+} sx1509_interrupt_mode_t;
 
-/**
- * @brief SX1509 device configuration structure.
- *
- * Holds the configuration parameters for an SX1509 device, including the I2C port and address.
- */
+
 typedef struct {
-    i2c_port_t i2c_port;    /**< I2C port number (e.g., I2C_NUM_0 or I2C_NUM_1) */
-    uint8_t i2c_addr;       /**< I2C address of the SX1509 (e.g., 0x3E to 0x71) */
-} sx1509_dev_t;
+    i2c_port_t i2c_port;
+    uint8_t i2c_addr;
+    gpio_num_t int_pin;
+    uint16_t debounce_time;
+    uint16_t led_clock_div;
+} sx1509_t;
 
-/**
- * @brief Initialize an SX1509 device.
- *
- * Configures the SX1509 for operation on the specified I2C port and address.
- * Assumes the I2C driver is already initialized externally (e.g., by the application).
- * Resets the device to a known state, with all I/O pins set as inputs and interrupts disabled.
- *
- * @param dev Pointer to the SX1509 device configuration structure.
- * @param port I2C port number (e.g., I2C_NUM_0 or I2C_NUM_1).
- * @param addr I2C address of the SX1509 (typically 0x3E to 0x71).
- * @return
- *     - ESP_OK on success.
- *     - ESP_ERR_INVALID_ARG if dev is NULL.
- *     - ESP_FAIL or other errors if I2C communication fails.
- */
-esp_err_t sx1509_init(sx1509_dev_t *dev, i2c_port_t port, uint8_t addr);
-
-/**
- * @brief Configure the mode of an SX1509 I/O pin.
- *
- * Sets the specified pin as input, input with pull-up, output, or analog (PWM) output.
- * For inputs, pull-ups can be enabled to simplify button connections.
- *
- * @param dev Pointer to the initialized SX1509 device configuration structure.
- * @param io I/O pin to configure (SX1509_IO_0 to SX1509_IO_15).
- * @param mode Mode to set (e.g., SX1509_INPUT, SX1509_INPUT_PULLUP, SX1509_OUTPUT).
- * @return
- *     - ESP_OK on success.
- *     - ESP_ERR_INVALID_ARG if dev is NULL or io/mode is invalid.
- *     - ESP_FAIL or other errors if I2C communication fails.
- */
-esp_err_t sx1509_pin_mode(sx1509_dev_t *dev, sx1509_io_t io, sx1509_io_mode_t mode);
-
-/**
- * @brief Read the digital state of an SX1509 input pin.
- *
- * Reads the current logic level of the specified pin (0 for low, 1 for high).
- * The pin must be configured as an input (SX1509_INPUT or SX1509_INPUT_PULLUP).
- *
- * @param dev Pointer to the initialized SX1509 device configuration structure.
- * @param io I/O pin to read (SX1509_IO_0 to SX1509_IO_15).
- * @param value Pointer to store the read value (0 or 1).
- * @return
- *     - ESP_OK on success.
- *     - ESP_ERR_INVALID_ARG if dev or value is NULL or io is invalid.
- *     - ESP_FAIL or other errors if I2C communication fails.
- */
-esp_err_t sx1509_digital_read(sx1509_dev_t *dev, sx1509_io_t io, uint8_t *value);
-
-/**
- * @brief Enable or disable interrupt on an SX1509 input pin.
- *
- * Configures the specified pin to trigger an interrupt on falling edge (high to low).
- * The SX1509's INT pin must be connected to a microcontroller GPIO to detect interrupts.
- *
- * @param dev Pointer to the initialized SX1509 device configuration structure.
- * @param io I/O pin to configure (SX1509_IO_0 to SX1509_IO_15).
- * @param enable True to enable interrupt, false to disable.
- * @return
- *     - ESP_OK on success.
- *     - ESP_ERR_INVALID_ARG if dev is NULL or io is invalid.
- *     - ESP_FAIL or other errors if I2C communication fails.
- */
-esp_err_t sx1509_enable_interrupt(sx1509_dev_t *dev, sx1509_io_t io, bool enable);
-
-/**
- * @brief Read and clear the interrupt source.
- *
- * Identifies which pin(s) triggered an interrupt and clears the interrupt flag.
- * Returns a bitmask where each bit corresponds to an I/O pin (1 if interrupted).
- *
- * @param dev Pointer to the initialized SX1509 device configuration structure.
- * @param sources Pointer to store the interrupt source bitmask (16 bits).
- * @return
- *     - ESP_OK on success.
- *     - ESP_ERR_INVALID_ARG if dev or sources is NULL.
- *     - ESP_FAIL or other errors if I2C communication fails.
- */
-esp_err_t sx1509_interrupt_source(sx1509_dev_t *dev, uint16_t *sources);
-
-#endif // SX1509_H
+esp_err_t sx1509_init(sx1509_t *dev, i2c_port_t i2c_port, uint8_t i2c_addr);
+esp_err_t sx1509_pin_mode(sx1509_t *dev, uint8_t pin, sx1509_pin_mode_t mode);
+esp_err_t sx1509_digital_write(sx1509_t *dev, uint8_t pin, uint8_t value);
+esp_err_t sx1509_digital_read(sx1509_t *dev, uint8_t pin, uint8_t *value);
+esp_err_t sx1509_enable_interrupt(sx1509_t *dev, uint8_t pin, sx1509_interrupt_mode_t mode);
+esp_err_t sx1509_disable_interrupt(sx1509_t *dev, uint8_t pin);
+esp_err_t sx1509_clear_interrupt(sx1509_t *dev);
+esp_err_t sx1509_get_interrupt_source(sx1509_t *dev, uint16_t *source);
+esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms);
+esp_err_t sx1509_debounce_enable(sx1509_t *dev, uint8_t pin);
+esp_err_t sx1509_debounce_disable(sx1509_t *dev, uint8_t pin);
+esp_err_t sx1509_pwm_config(sx1509_t *dev, uint8_t pin, uint8_t freq_div);
+esp_err_t sx1509_pwm_write(sx1509_t *dev, uint8_t pin, uint8_t value);

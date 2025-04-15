@@ -1,239 +1,248 @@
 #include "sx1509.h"
+#include <string.h>
 #include "esp_log.h"
-#include "driver/i2c.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "SX1509";
 
-// Register definitions (from SparkFun SX1509 library)
-#define SX1509_REG_DATA_B           0x00 // Data register bank B (pins 15-8)
-#define SX1509_REG_DATA_A           0x01 // Data register bank A (pins 7-0)
-#define SX1509_REG_DIR_B            0x02 // Direction bank B (0=output, 1=input)
-#define SX1509_REG_DIR_A            0x03 // Direction bank A
-#define SX1509_REG_PULLUP_B         0x04 // Pull-up bank B (1=enabled)
-#define SX1509_REG_PULLUP_A         0x05 // Pull-up bank A
-#define SX1509_REG_INT_MASK_B       0x0C // Interrupt mask bank B (0=enabled)
-#define SX1509_REG_INT_MASK_A       0x0D // Interrupt mask bank A
-#define SX1509_REG_SENSE_B          0x0E // Interrupt sense bank B (edge config)
-#define SX1509_REG_SENSE_A          0x0F // Interrupt sense bank A
-#define SX1509_REG_INT_SRC_B        0x10 // Interrupt source bank B (1=triggered)
-#define SX1509_REG_INT_SRC_A        0x11 // Interrupt source bank A
-#define SX1509_REG_RESET            0x7D // Software reset (write 0x12, 0x34)
-
-static esp_err_t write_reg(sx1509_dev_t *dev, uint8_t reg, uint8_t value) {
+static esp_err_t write_register(sx1509_t *dev, uint8_t reg, uint8_t value)
+{
+    uint8_t write_buf[2] = {reg, value};
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, value, true);
+    i2c_master_write(cmd, write_buf, 2, true);
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(dev->i2c_port, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write reg 0x%02X: %s", reg, esp_err_to_name(ret));
-    }
     return ret;
 }
 
-static esp_err_t read_reg(sx1509_dev_t *dev, uint8_t reg, uint8_t *value) {
+static esp_err_t read_register(sx1509_t *dev, uint8_t reg, uint8_t *value)
+{
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_WRITE, true);
     i2c_master_write_byte(cmd, reg, true);
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, value, I2C_MASTER_NACK);
+    i2c_master_read_byte(cmd, value, I2C_MASTER_LAST_NACK);
     i2c_master_stop(cmd);
     esp_err_t ret = i2c_master_cmd_begin(dev->i2c_port, cmd, pdMS_TO_TICKS(100));
     i2c_cmd_link_delete(cmd);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read reg 0x%02X: %s", reg, esp_err_to_name(ret));
-    }
     return ret;
 }
 
-static esp_err_t write_reg16(sx1509_dev_t *dev, uint8_t reg, uint16_t value) {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, (value >> 8) & 0xFF, true); // High byte
-    i2c_master_write_byte(cmd, value & 0xFF, true);        // Low byte
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(dev->i2c_port, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
+esp_err_t sx1509_init(sx1509_t *dev, i2c_port_t i2c_port, uint8_t i2c_addr)
+{
+    ESP_LOGI(TAG, "Initializing SX1509 at 0x%02X, I2C port %d", i2c_addr, i2c_port);
+    
+    dev->i2c_port = i2c_port;
+    dev->i2c_addr = i2c_addr;
+    
+    // Test communication by reading the reset register
+    uint8_t test_val;
+    esp_err_t ret = read_register(dev, REG_RESET, &test_val);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write reg 0x%02X: %s", reg, esp_err_to_name(ret));
-    }
-    return ret;
-}
-
-static esp_err_t read_reg16(sx1509_dev_t *dev, uint8_t reg, uint16_t *value) {
-    uint8_t high, low;
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (dev->i2c_addr << 1) | I2C_MASTER_READ, true);
-    i2c_master_read_byte(cmd, &high, I2C_MASTER_ACK);
-    i2c_master_read_byte(cmd, &low, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(dev->i2c_port, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
-    if (ret == ESP_OK) {
-        *value = (high << 8) | low;
-    } else {
-        ESP_LOGE(TAG, "Failed to read reg 0x%02X: %s", reg, esp_err_to_name(ret));
-    }
-    return ret;
-}
-
-esp_err_t sx1509_init(sx1509_dev_t *dev, i2c_port_t port, uint8_t addr) {
-    if (!dev) return ESP_ERR_INVALID_ARG;
-
-    ESP_LOGI(TAG, "Initializing SX1509 at address 0x%02X", addr);
-    dev->i2c_port = port;
-    dev->i2c_addr = addr;
-
-    // Probe device
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to probe SX1509 at 0x%02X: %s", addr, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to communicate with SX1509");
         return ret;
     }
-
-    // Software reset
-    ret = write_reg(dev, SX1509_REG_RESET, 0x12);
-    if (ret != ESP_OK) return ret;
-    ret = write_reg(dev, SX1509_REG_RESET, 0x34);
-    if (ret != ESP_OK) return ret;
-    vTaskDelay(pdMS_TO_TICKS(5));
-
-    // Set all pins as inputs, disable pull-ups, disable interrupts
-    ret = write_reg16(dev, SX1509_REG_DIR_B, 0xFFFF); // 1=input
-    if (ret != ESP_OK) return ret;
-    ret = write_reg16(dev, SX1509_REG_PULLUP_B, 0x0000); // 0=disabled
-    if (ret != ESP_OK) return ret;
-    ret = write_reg16(dev, SX1509_REG_INT_MASK_B, 0xFFFF); // 1=masked
-    if (ret != ESP_OK) return ret;
-
-    ESP_LOGI(TAG, "SX1509 initialized");
+    
+    // Software Reset
+    ESP_LOGI(TAG, "Performing software reset");
+    ret = write_register(dev, REG_RESET, 0x12);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Reset step 1 failed");
+        return ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+    
+    ret = write_register(dev, REG_RESET, 0x34);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Reset step 2 failed");
+        return ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+    
+    // Default configuration
+    ESP_LOGI(TAG, "Setting up clock");
+    ret = write_register(dev, REG_CLOCK, 0x40); // Internal 2MHz oscillator
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Clock setup failed");
+        return ret;
+    }
+    
+    ESP_LOGI(TAG, "Setting up misc register");
+    ret = write_register(dev, REG_MISC, 0x00); // Normal operation
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Misc setup failed");
+        return ret;
+    }
+    
+    // Verify configuration
+    uint8_t clock_val, misc_val;
+    ret = read_register(dev, REG_CLOCK, &clock_val);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Clock register value: 0x%02X", clock_val);
+    }
+    
+    ret = read_register(dev, REG_MISC, &misc_val);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Misc register value: 0x%02X", misc_val);
+    }
+    
     return ESP_OK;
 }
 
-esp_err_t sx1509_pin_mode(sx1509_dev_t *dev, sx1509_io_t io, sx1509_io_mode_t mode) {
-    if (!dev || io >= SX1509_IO_COUNT) return ESP_ERR_INVALID_ARG;
-
-    uint8_t dir_reg = io < 8 ? SX1509_REG_DIR_A : SX1509_REG_DIR_B;
-    uint8_t pullup_reg = io < 8 ? SX1509_REG_PULLUP_A : SX1509_REG_PULLUP_B;
-    uint8_t bit = io % 8;
-    uint16_t dir_val, pullup_val;
-
-    // Read current register values
-    esp_err_t ret = read_reg16(dev, SX1509_REG_DIR_B, &dir_val);
-    if (ret != ESP_OK) return ret;
-    ret = read_reg16(dev, SX1509_REG_PULLUP_B, &pullup_val);
-    if (ret != ESP_OK) return ret;
-
-    // Update direction
+esp_err_t sx1509_pin_mode(sx1509_t *dev, uint8_t pin, sx1509_pin_mode_t mode)
+{
+    ESP_LOGI(TAG, "Setting pin %d to mode %d", pin, mode);
+    
+    uint8_t reg_dir = (pin < 8) ? REG_DIR_A : REG_DIR_B;
+    uint8_t reg_pullup = (pin < 8) ? REG_PULLUP_A : REG_PULLUP_B;
+    uint8_t pin_bit = pin % 8;
+    uint8_t dir_val, pullup_val;
+    
+    esp_err_t ret = read_register(dev, reg_dir, &dir_val);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read direction register");
+        return ret;
+    }
+    ESP_LOGI(TAG, "Current direction register: 0x%02X", dir_val);
+    
+    ret = read_register(dev, reg_pullup, &pullup_val);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read pullup register");
+        return ret;
+    }
+    ESP_LOGI(TAG, "Current pullup register: 0x%02X", pullup_val);
+    
     switch (mode) {
         case SX1509_INPUT:
-        case SX1509_INPUT_PULLUP:
-            dir_val |= (1 << io); // 1=input
+            dir_val |= (1 << pin_bit);
+            pullup_val &= ~(1 << pin_bit);
             break;
         case SX1509_OUTPUT:
-        case SX1509_ANALOG_OUTPUT:
-            dir_val &= ~(1 << io); // 0=output
+            dir_val &= ~(1 << pin_bit);
+            pullup_val &= ~(1 << pin_bit);
+            break;
+        case SX1509_INPUT_PULLUP:
+            dir_val |= (1 << pin_bit);
+            pullup_val |= (1 << pin_bit);
             break;
         default:
             return ESP_ERR_INVALID_ARG;
     }
-
-    // Update pull-up
-    if (mode == SX1509_INPUT_PULLUP) {
-        pullup_val |= (1 << io); // 1=enabled
-    } else {
-        pullup_val &= ~(1 << io); // 0=disabled
+    
+    ESP_LOGI(TAG, "Setting direction register to: 0x%02X", dir_val);
+    ret = write_register(dev, reg_dir, dir_val);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write direction register");
+        return ret;
     }
+    
+    ESP_LOGI(TAG, "Setting pullup register to: 0x%02X", pullup_val);
+    return write_register(dev, reg_pullup, pullup_val);
+}
 
-    // Write updated values
-    ret = write_reg16(dev, SX1509_REG_DIR_B, dir_val);
+esp_err_t sx1509_enable_interrupt(sx1509_t *dev, uint8_t pin, sx1509_interrupt_mode_t mode)
+{
+    ESP_LOGI(TAG, "Enabling interrupt for pin %d, mode %d", pin, mode);
+    
+    // Configure both high and low sense registers
+    uint8_t reg_sense_high = (pin < 8) ? REG_SENSE_HIGH_A : REG_SENSE_HIGH_B;
+    uint8_t reg_sense_low = (pin < 8) ? REG_SENSE_LOW_A : REG_SENSE_LOW_B;
+    uint8_t reg_mask = (pin < 8) ? REG_INTERRUPT_MASK_A : REG_INTERRUPT_MASK_B;
+    uint8_t pin_bit = pin % 8;
+    
+    // For falling edge: set sense high to 0 and sense low to 1
+    esp_err_t ret = write_register(dev, reg_sense_high, 0x00);
     if (ret != ESP_OK) return ret;
-    ret = write_reg16(dev, SX1509_REG_PULLUP_B, pullup_val);
+    
+    ret = write_register(dev, reg_sense_low, (1 << pin_bit));
     if (ret != ESP_OK) return ret;
+    
+    // Clear interrupt mask to enable interrupt
+    uint8_t mask_val;
+    ret = read_register(dev, reg_mask, &mask_val);
+    if (ret != ESP_OK) return ret;
+    
+    mask_val &= ~(1 << pin_bit);  // Clear bit to enable interrupt
+    ret = write_register(dev, reg_mask, mask_val);
+    if (ret != ESP_OK) return ret;
+    
+    // Clear any pending interrupts
+    return sx1509_clear_interrupt(dev);
+}
 
-    ESP_LOGI(TAG, "Set IO %d to mode %d", io, mode);
+
+esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms)
+{
+    uint8_t debounce_value;
+    
+    // Convert time to closest available setting
+    if (time_ms <= 0.5) debounce_value = 0;
+    else if (time_ms <= 1) debounce_value = 1;
+    else if (time_ms <= 2) debounce_value = 2;
+    else if (time_ms <= 4) debounce_value = 3;
+    else if (time_ms <= 8) debounce_value = 4;
+    else if (time_ms <= 16) debounce_value = 5;
+    else if (time_ms <= 32) debounce_value = 6;
+    else debounce_value = 7;  // 64ms
+    
+    return write_register(dev, REG_CLOCK, 0x40 | (debounce_value << 4));
+}
+
+esp_err_t sx1509_debounce_enable(sx1509_t *dev, uint8_t pin)
+{
+    uint8_t reg = (pin < 8) ? REG_DEBOUNCE_CONFIG_A : REG_DEBOUNCE_CONFIG_B;
+    uint8_t pin_bit = pin % 8;
+    uint8_t debounce_val;
+    
+    esp_err_t ret = read_register(dev, reg, &debounce_val);
+    if (ret != ESP_OK) return ret;
+    
+    debounce_val |= (1 << pin_bit);
+    
+    return write_register(dev, reg, debounce_val);
+}
+
+esp_err_t sx1509_get_interrupt_source(sx1509_t *dev, uint16_t *source)
+{
+    uint8_t src_a, src_b;
+    
+    esp_err_t ret = read_register(dev, REG_INTERRUPT_SOURCE_A, &src_a);
+    if (ret != ESP_OK) return ret;
+    
+    ret = read_register(dev, REG_INTERRUPT_SOURCE_B, &src_b);
+    if (ret != ESP_OK) return ret;
+    
+    *source = ((uint16_t)src_b << 8) | src_a;
+    ESP_LOGI(TAG, "Interrupt source A: 0x%02X, B: 0x%02X", src_a, src_b);
+    
     return ESP_OK;
 }
 
-esp_err_t sx1509_digital_read(sx1509_dev_t *dev, sx1509_io_t io, uint8_t *value) {
-    if (!dev || io >= SX1509_IO_COUNT || !value) return ESP_ERR_INVALID_ARG;
+esp_err_t sx1509_clear_interrupt(sx1509_t *dev)
+{
+    esp_err_t ret = write_register(dev, REG_INTERRUPT_SOURCE_A, 0xFF);
+    if (ret != ESP_OK) return ret;
+    
+    return write_register(dev, REG_INTERRUPT_SOURCE_B, 0xFF);
+}
 
-    uint8_t reg = io < 8 ? SX1509_REG_DATA_A : SX1509_REG_DATA_B;
-    uint8_t bit = io % 8;
+esp_err_t sx1509_digital_read(sx1509_t *dev, uint8_t pin, uint8_t *value)
+{
+    uint8_t reg = (pin < 8) ? REG_DATA_A : REG_DATA_B;
+    uint8_t pin_bit = pin % 8;
     uint8_t data;
-
-    esp_err_t ret = read_reg(dev, reg, &data);
-    if (ret != ESP_OK) return ret;
-
-    *value = (data >> bit) & 0x01;
-    ESP_LOGI(TAG, "Read IO %d: %d", io, *value);
-    return ESP_OK;
-}
-
-esp_err_t sx1509_enable_interrupt(sx1509_dev_t *dev, sx1509_io_t io, bool enable) {
-    if (!dev || io >= SX1509_IO_COUNT) return ESP_ERR_INVALID_ARG;
-
-    uint8_t mask_reg = io < 8 ? SX1509_REG_INT_MASK_A : SX1509_REG_INT_MASK_B;
-    uint8_t sense_reg = io < 8 ? SX1509_REG_SENSE_A : SX1509_REG_SENSE_B;
-    uint8_t bit = io % 8;
-    uint16_t mask_val, sense_val;
-
-    // Read current values
-    esp_err_t ret = read_reg16(dev, SX1509_REG_INT_MASK_B, &mask_val);
-    if (ret != ESP_OK) return ret;
-    ret = read_reg16(dev, SX1509_REG_SENSE_B, &sense_val);
-    if (ret != ESP_OK) return ret;
-
-    // Update interrupt mask (0=enabled, 1=masked)
-    if (enable) {
-        mask_val &= ~(1 << io); // Unmask
-    } else {
-        mask_val |= (1 << io); // Mask
+    
+    esp_err_t ret = read_register(dev, reg, &data);
+    if (ret == ESP_OK) {
+        *value = (data & (1 << pin_bit)) ? 1 : 0;
+        ESP_LOGI(TAG, "Pin %d state: %d (register value: 0x%02X)", pin, *value, data);
     }
-
-    // Set falling edge (0b10) for this pin
-    uint8_t sense_bit = (io % 8) * 2;
-    sense_val &= ~(0x3 << sense_bit); // Clear bits
-    if (enable) {
-        sense_val |= (0x2 << sense_bit); // Falling edge
-    }
-
-    // Write updated values
-    ret = write_reg16(dev, SX1509_REG_INT_MASK_B, mask_val);
-    if (ret != ESP_OK) return ret;
-    ret = write_reg16(dev, SX1509_REG_SENSE_B, sense_val);
-    if (ret != ESP_OK) return ret;
-
-    ESP_LOGI(TAG, "%s interrupt on IO %d", enable ? "Enabled" : "Disabled", io);
-    return ESP_OK;
-}
-
-esp_err_t sx1509_interrupt_source(sx1509_dev_t *dev, uint16_t *sources) {
-    if (!dev || !sources) return ESP_ERR_INVALID_ARG;
-
-    esp_err_t ret = read_reg16(dev, SX1509_REG_INT_SRC_B, sources);
-    if (ret != ESP_OK) return ret;
-
-    // Clear interrupt by writing back
-    ret = write_reg16(dev, SX1509_REG_INT_SRC_B, *sources);
-    if (ret != ESP_OK) return ret;
-
-    ESP_LOGI(TAG, "Interrupt sources: 0x%04X", *sources);
-    return ESP_OK;
+    
+    return ret;
 }
