@@ -36,63 +36,53 @@ static esp_err_t read_register(sx1509_t *dev, uint8_t reg, uint8_t *value)
 
 esp_err_t sx1509_init(sx1509_t *dev, i2c_port_t i2c_port, uint8_t i2c_addr)
 {
-    ESP_LOGI(TAG, "Initializing SX1509 at 0x%02X, I2C port %d", i2c_addr, i2c_port);
-    
     dev->i2c_port = i2c_port;
     dev->i2c_addr = i2c_addr;
     
-    // Test communication by reading the reset register
-    uint8_t test_val;
-    esp_err_t ret = read_register(dev, REG_RESET, &test_val);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to communicate with SX1509");
-        return ret;
-    }
-    
     // Software Reset
-    ESP_LOGI(TAG, "Performing software reset");
-    ret = write_register(dev, REG_RESET, 0x12);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Reset step 1 failed");
-        return ret;
-    }
+    esp_err_t ret = write_register(dev, REG_RESET, 0x12);
+    if (ret != ESP_OK) return ret;
     vTaskDelay(pdMS_TO_TICKS(1));
-    
     ret = write_register(dev, REG_RESET, 0x34);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Reset step 2 failed");
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
     vTaskDelay(pdMS_TO_TICKS(1));
     
     // Default configuration
-    ESP_LOGI(TAG, "Setting up clock");
     ret = write_register(dev, REG_CLOCK, 0x40); // Internal 2MHz oscillator
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Clock setup failed");
-        return ret;
-    }
+    if (ret != ESP_OK) return ret;
     
-    ESP_LOGI(TAG, "Setting up misc register");
-    ret = write_register(dev, REG_MISC, 0x00); // Normal operation
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Misc setup failed");
-        return ret;
-    }
+    return write_register(dev, REG_MISC, 0x00); // Normal operation
+}
+
+esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint8_t pin_mask)
+{
+    esp_err_t ret;
+
+    // Set direction (1 = input)
+    ret = write_register(dev, REG_DIR_A, pin_mask);
+    if (ret != ESP_OK) return ret;
+
+    // Enable pullup
+    ret = write_register(dev, REG_PULLUP_A, pin_mask);
+    if (ret != ESP_OK) return ret;
+
+    // Configure debounce
+    ret = write_register(dev, REG_DEBOUNCE_CONFIG_A, pin_mask);
+    if (ret != ESP_OK) return ret;
+
+    // Enable interrupts (clear mask)
+    ret = write_register(dev, REG_INTERRUPT_MASK_A, 0x00);
+    if (ret != ESP_OK) return ret;
+
+    // Configure for falling edge detection
+    ret = write_register(dev, REG_SENSE_HIGH_A, 0x00);
+    if (ret != ESP_OK) return ret;
     
-    // Verify configuration
-    uint8_t clock_val, misc_val;
-    ret = read_register(dev, REG_CLOCK, &clock_val);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Clock register value: 0x%02X", clock_val);
-    }
-    
-    ret = read_register(dev, REG_MISC, &misc_val);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Misc register value: 0x%02X", misc_val);
-    }
-    
-    return ESP_OK;
+    ret = write_register(dev, REG_SENSE_LOW_A, pin_mask);
+    if (ret != ESP_OK) return ret;
+
+    // Clear any pending interrupts
+    return sx1509_clear_interrupt(dev);
 }
 
 esp_err_t sx1509_pin_mode(sx1509_t *dev, uint8_t pin, sx1509_pin_mode_t mode)
@@ -181,7 +171,6 @@ esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms)
 {
     uint8_t debounce_value;
     
-    // Convert time to closest available setting
     if (time_ms <= 0.5) debounce_value = 0;
     else if (time_ms <= 1) debounce_value = 1;
     else if (time_ms <= 2) debounce_value = 2;
@@ -189,7 +178,7 @@ esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms)
     else if (time_ms <= 8) debounce_value = 4;
     else if (time_ms <= 16) debounce_value = 5;
     else if (time_ms <= 32) debounce_value = 6;
-    else debounce_value = 7;  // 64ms
+    else debounce_value = 7;
     
     return write_register(dev, REG_CLOCK, 0x40 | (debounce_value << 4));
 }
@@ -208,6 +197,11 @@ esp_err_t sx1509_debounce_enable(sx1509_t *dev, uint8_t pin)
     return write_register(dev, reg, debounce_val);
 }
 
+esp_err_t sx1509_get_pin_states(sx1509_t *dev, uint8_t *states)
+{
+    return read_register(dev, REG_DATA_A, states);
+}
+
 esp_err_t sx1509_get_interrupt_source(sx1509_t *dev, uint16_t *source)
 {
     uint8_t src_a, src_b;
@@ -219,8 +213,6 @@ esp_err_t sx1509_get_interrupt_source(sx1509_t *dev, uint16_t *source)
     if (ret != ESP_OK) return ret;
     
     *source = ((uint16_t)src_b << 8) | src_a;
-    ESP_LOGI(TAG, "Interrupt source A: 0x%02X, B: 0x%02X", src_a, src_b);
-    
     return ESP_OK;
 }
 
