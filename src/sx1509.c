@@ -79,34 +79,44 @@ esp_err_t sx1509_init(sx1509_t *dev, i2c_port_t i2c_port, uint8_t i2c_addr)
     return write_register(dev, REG_MISC, 0x00); // Normal operation
 }
 
-esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint8_t pin_mask)
+esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask)
 {
     esp_err_t ret;
+    uint8_t bank_a_mask = pin_mask & 0xFF;
+    uint8_t bank_b_mask = (pin_mask >> 8) & 0xFF;
 
-    // Set direction (1 = input)
-    ret = write_register(dev, REG_DIR_A, pin_mask);
-    if (ret != ESP_OK) return ret;
+    // Configure Bank A (pins 0-7)
+    if (bank_a_mask) {
+        ret = write_register(dev, REG_DIR_A, bank_a_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_PULLUP_A, bank_a_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_DEBOUNCE_CONFIG_A, bank_a_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_INTERRUPT_MASK_A, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_SENSE_HIGH_A, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_SENSE_LOW_A, bank_a_mask);
+        if (ret != ESP_OK) return ret;
+    }
 
-    // Enable pullup
-    ret = write_register(dev, REG_PULLUP_A, pin_mask);
-    if (ret != ESP_OK) return ret;
+    // Configure Bank B (pins 8-15)
+    if (bank_b_mask) {
+        ret = write_register(dev, REG_DIR_B, bank_b_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_PULLUP_B, bank_b_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_DEBOUNCE_CONFIG_B, bank_b_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_INTERRUPT_MASK_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_SENSE_HIGH_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_SENSE_LOW_B, bank_b_mask);
+        if (ret != ESP_OK) return ret;
+    }
 
-    // Configure debounce
-    ret = write_register(dev, REG_DEBOUNCE_CONFIG_A, pin_mask);
-    if (ret != ESP_OK) return ret;
-
-    // Enable interrupts (clear mask)
-    ret = write_register(dev, REG_INTERRUPT_MASK_A, 0x00);
-    if (ret != ESP_OK) return ret;
-
-    // Configure for falling edge detection
-    ret = write_register(dev, REG_SENSE_HIGH_A, 0x00);
-    if (ret != ESP_OK) return ret;
-    
-    ret = write_register(dev, REG_SENSE_LOW_A, pin_mask);
-    if (ret != ESP_OK) return ret;
-
-    // Clear any pending interrupts
     return sx1509_clear_interrupt(dev);
 }
 

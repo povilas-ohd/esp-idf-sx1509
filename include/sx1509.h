@@ -101,10 +101,10 @@ esp_err_t sx1509_init(sx1509_t *dev, i2c_port_t i2c_port, uint8_t i2c_addr);
  * @brief Configure multiple pins as inputs with pull-ups and interrupts.
  *
  * @param dev Pointer to SX1509 device structure.
- * @param pin_mask Bitmap of pins to configure (1=configure, 0=ignore).
+ * @param pin_mask Bitmap of pins to configure (1=configure, 0=ignore). 16-bit value for all pins.
  * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
-esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint8_t pin_mask);
+esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask);
 
 /**
  * @brief Configure the mode of a specific pin.
