@@ -85,11 +85,17 @@ esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask)
     uint8_t bank_a_mask = pin_mask & 0xFF;
     uint8_t bank_b_mask = (pin_mask >> 8) & 0xFF;
 
+    ESP_LOGI(TAG, "Configuring input pins: mask=0x%04X, bank_a=0x%02X, bank_b=0x%02X", pin_mask, bank_a_mask, bank_b_mask);
+
     // Configure Bank A (pins 0-7)
     if (bank_a_mask) {
+        ret = write_register(dev, REG_INPUT_DISABLE_A, 0x00);
+        if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_DIR_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_PULLUP_A, bank_a_mask);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_PULLDOWN_A, 0x00);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_DEBOUNCE_CONFIG_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
@@ -99,22 +105,34 @@ esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask)
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_SENSE_LOW_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
+        ESP_LOGI(TAG, "Bank A configured");
     }
 
     // Configure Bank B (pins 8-15)
     if (bank_b_mask) {
+        ret = write_register(dev, REG_LED_DRIVER_ENABLE_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_INPUT_DISABLE_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_POLARITY_B, 0x00);
+        if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_DIR_B, bank_b_mask);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_PULLUP_B, bank_b_mask);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_DEBOUNCE_CONFIG_B, bank_b_mask);
+        ret = write_register(dev, REG_PULLDOWN_B, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_INTERRUPT_MASK_B, 0x00);
+        ret = write_register(dev, REG_OPEN_DRAIN_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_DEBOUNCE_CONFIG_B, 0x00);
+        if (ret != ESP_OK) return ret;
+        ret = write_register(dev, REG_INTERRUPT_MASK_B, 0xFF);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_SENSE_HIGH_B, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_SENSE_LOW_B, bank_b_mask);
+        ret = write_register(dev, REG_SENSE_LOW_B, 0x00);
         if (ret != ESP_OK) return ret;
+        ESP_LOGI(TAG, "Bank B configured");
     }
 
     return sx1509_clear_interrupt(dev);
@@ -198,7 +216,7 @@ esp_err_t sx1509_digital_read(sx1509_t *dev, uint8_t pin, uint8_t *value)
     esp_err_t ret = read_register(dev, reg, &data);
     if (ret == ESP_OK) {
         *value = (data & (1 << pin_bit)) ? 1 : 0;
-        ESP_LOGD(TAG, "Pin %d state: %d (register value: 0x%02X)", pin, *value, data);
+        ESP_LOGI(TAG, "Pin %d (bit %d) state: %d (register 0x%02X value: 0x%02X)", pin, pin_bit, *value, reg, data);
     }
     
     return ret;
