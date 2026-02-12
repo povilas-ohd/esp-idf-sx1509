@@ -216,7 +216,6 @@ esp_err_t sx1509_digital_read(sx1509_t *dev, uint8_t pin, uint8_t *value)
     esp_err_t ret = read_register(dev, reg, &data);
     if (ret == ESP_OK) {
         *value = (data & (1 << pin_bit)) ? 1 : 0;
-        ESP_LOGI(TAG, "Pin %d (bit %d) state: %d (register 0x%02X value: 0x%02X)", pin, pin_bit, *value, reg, data);
     }
     
     return ret;
