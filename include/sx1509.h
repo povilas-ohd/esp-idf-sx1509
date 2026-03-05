@@ -50,8 +50,9 @@
 #define REG_MISC                0x1F ///< Miscellaneous control
 #define REG_LED_DRIVER_ENABLE_B 0x20 ///< LED driver enable (Bank B)
 #define REG_LED_DRIVER_ENABLE_A 0x21 ///< LED driver enable (Bank A)
-#define REG_DEBOUNCE_CONFIG_A   0x22 ///< Debounce config (Bank A)
-#define REG_DEBOUNCE_CONFIG_B   0x23 ///< Debounce config (Bank B)
+#define REG_DEBOUNCE_CONFIG     0x22 ///< Global debounce timing config (bits [2:0])
+#define REG_DEBOUNCE_ENABLE_B   0x23 ///< Debounce enable per pin (Bank B)
+#define REG_DEBOUNCE_ENABLE_A   0x24 ///< Debounce enable per pin (Bank A)
 #define REG_RESET               0x7D ///< Software reset
 #define REG_TEST_1              0x7E ///< Test register 1
 #define REG_TEST_2              0x7F ///< Test register 2

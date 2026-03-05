@@ -97,11 +97,11 @@ esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask)
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_PULLDOWN_A, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_DEBOUNCE_CONFIG_A, bank_a_mask);
+        ret = write_register(dev, REG_DEBOUNCE_ENABLE_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_INTERRUPT_MASK_A, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_SENSE_HIGH_A, 0x00);
+        ret = write_register(dev, REG_SENSE_HIGH_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_SENSE_LOW_A, bank_a_mask);
         if (ret != ESP_OK) return ret;
@@ -124,13 +124,13 @@ esp_err_t sx1509_configure_input_pins(sx1509_t *dev, uint16_t pin_mask)
         if (ret != ESP_OK) return ret;
         ret = write_register(dev, REG_OPEN_DRAIN_B, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_DEBOUNCE_CONFIG_B, 0x00);
+        ret = write_register(dev, REG_DEBOUNCE_ENABLE_B, bank_b_mask);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_INTERRUPT_MASK_B, 0xFF);
+        ret = write_register(dev, REG_INTERRUPT_MASK_B, 0x00);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_SENSE_HIGH_B, 0x00);
+        ret = write_register(dev, REG_SENSE_HIGH_B, bank_b_mask);
         if (ret != ESP_OK) return ret;
-        ret = write_register(dev, REG_SENSE_LOW_B, 0x00);
+        ret = write_register(dev, REG_SENSE_LOW_B, bank_b_mask);
         if (ret != ESP_OK) return ret;
         ESP_LOGI(TAG, "Bank B configured");
     }
@@ -285,7 +285,7 @@ esp_err_t sx1509_get_interrupt_source(sx1509_t *dev, uint16_t *source)
 esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms)
 {
     uint8_t debounce_value;
-    
+
     if (time_ms <= 0.5) debounce_value = 0;
     else if (time_ms <= 1) debounce_value = 1;
     else if (time_ms <= 2) debounce_value = 2;
@@ -294,13 +294,13 @@ esp_err_t sx1509_set_debounce_time(sx1509_t *dev, uint16_t time_ms)
     else if (time_ms <= 16) debounce_value = 5;
     else if (time_ms <= 32) debounce_value = 6;
     else debounce_value = 7;
-    
-    return write_register(dev, REG_CLOCK, 0x40 | (debounce_value << 4));
+
+    return write_register(dev, REG_DEBOUNCE_CONFIG, debounce_value);
 }
 
 esp_err_t sx1509_debounce_enable(sx1509_t *dev, uint8_t pin)
 {
-    uint8_t reg = (pin < 8) ? REG_DEBOUNCE_CONFIG_A : REG_DEBOUNCE_CONFIG_B;
+    uint8_t reg = (pin < 8) ? REG_DEBOUNCE_ENABLE_A : REG_DEBOUNCE_ENABLE_B;
     uint8_t pin_bit = pin % 8;
     uint8_t debounce_val;
     
@@ -314,7 +314,7 @@ esp_err_t sx1509_debounce_enable(sx1509_t *dev, uint8_t pin)
 
 esp_err_t sx1509_debounce_disable(sx1509_t *dev, uint8_t pin)
 {
-    uint8_t reg = (pin < 8) ? REG_DEBOUNCE_CONFIG_A : REG_DEBOUNCE_CONFIG_B;
+    uint8_t reg = (pin < 8) ? REG_DEBOUNCE_ENABLE_A : REG_DEBOUNCE_ENABLE_B;
     uint8_t pin_bit = pin % 8;
     uint8_t debounce_val;
 
